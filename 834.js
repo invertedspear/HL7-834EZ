@@ -10,7 +10,7 @@
  *		-use the input filename to generate the output file
  *		-take a pause here and there so the page can get updated
  */
-const detailedConsole = true;
+const detailedConsole = false;
 
 let ISA = class{ // Interchange Control Headers
 	constructor(segString){
@@ -541,7 +541,7 @@ function convertFile(evt){
 		var hiddenElement = document.createElement('a');
 		hiddenElement.href = 'data:text/csv;charset=utf-8,' + encodeURI(outText);
 		hiddenElement.target = '_blank';
-		hiddenElement.download = 'returnFile.csv';
+		hiddenElement.download = document.getElementById('fileInput').files[0].name + '.csv';
 		hiddenElement.click();
 		//detailedConsole && console.dir(outText);
 	}
@@ -549,7 +549,6 @@ function convertFile(evt){
 	fileReader.readAsText(inFile);
 	document.getElementById('status').innerHTML += 'File read into system.<br />'
 	detailedConsole && console.log('done');
-
 }
 
 function dateFromString(dateString, dateFormatCode,outputformat = "JS"){
