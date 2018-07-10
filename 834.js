@@ -4,7 +4,13 @@
  * 		1) load up the code to description dictionaries for each segment type so I don't have to rely on known codes
  * 		2) improve thrown aborting errors
  * 		3) make variable names consistent style
+ * 
+ * 
+ * immediate to do:
+ *		-use the input filename to generate the output file
+ *		-take a pause here and there so the page can get updated
  */
+const detailedConsole = true;
 
 let ISA = class{ // Interchange Control Headers
 	constructor(segString){
@@ -75,6 +81,7 @@ let DTP = class{
 		this.Format = consArray[2];
 		this.DTPString = consArray[3];
 		this.QualifierDesc = "";
+		this.JSDate = "";
 	}
 }
 
@@ -130,7 +137,7 @@ let NM1Seg = class{ //information source name
 		this.NameSuffix = segArray[7];
 		this.IDCodeQualifier = segArray[8];
 		this.MemberId = segArray[9];
-		this.EntityCodeDesc = null;
+		this.EntityCodeDesc = "";
 	}
 }
 
@@ -143,9 +150,9 @@ let PERSeg = class{ //Phone or email
 		this.CommunicationNumber = segArray[4];
 		this.CommunicationNumberQualifier2 = segArray[5];
 		this.CommunicationNumber2 = segArray[6];
-		this.ContactFunctionDesc = null;
-		this.CommunicationDescription = null;
-		this.CommunicationDescription2 = null;
+		this.ContactFunctionDesc = "";
+		this.CommunicationDescription = "";
+		this.CommunicationDescription2 = "";
 	}
 }
 
@@ -167,33 +174,56 @@ let N4Seg = class{ //City state zip
 	}
 }
 
+let DMGSeg = class{ //base demographics
+	constructor(segString){
+		let segArray = segString.split('*');
+		this.DTPFormat = segArray[1];
+		this.DOB = segArray[2];
+		this.GenderCode = segArray[3]; //Standards are only (M)ale, (F)emale, and (U)nknown
+		this.MaritalStatus = segArray[4];
+		this.MaritalStatusDesc = "";
+	}
+}
+
+let HDSeg = class{
+	constructor(segString){
+		let segArray = segString.split('*');
+		this.MaintenanceTypeCode = segArray[1];
+		this.MaintenanceReasonCode = segArray[2];
+		this.InsuranceLineCode = segArray[3];
+		this.PlanCoverageDescription = segArray[4];
+		this.CoverageLevelCode = segArray[5];
+		this.MaintenanceTypeDesc = "";
+		this.InsuranceLineDesc = "";
+	}
+}
 let CSVRow = class{
 	constructor(){
-		this.Partner_Federal_ID = null;
-		this.Individual_Relationship_Code = null;
-		this.Employment_Status_Code = null;
-		this.Student_Status_Code = null;
-		this.Subscriber_Employee_Number = null;
-		this.Member_Policy_Number = null;
-		this.Entity_Organization = null;
-		this.Group_Policy = null;
-		this.Last_Name = null;
-		this.First_Name = null;
-		this.Middle_Name = null;
-		this.Phone_Number = null;
-		this.Email_Address = null;
-		this.Address_1 = null;
-		this.Address_2 = null;
-		this.City = null;
-		this.State = null;
-		this.ZipCode = null;
-		this.DOB = null;
-		this.Gender = null;
-		this.Plan_Coverage_Description = null;
-		this.Eligibility_Begin_Date = null;
-		this.Eligibility_End_Date = null;
-		this.Benefit_Start = null;
-		this.Benefit_End = null;
+		this.Partner_Federal_ID = "";
+		this.Individual_Relationship_Code = "";
+		this.Employment_Status_Code = "";
+		this.Student_Status_Code = "";
+		this.Subscriber_Employee_Number = "";
+		this.Member_Policy_Number = "";
+		this.Entity_Organization = "";
+		this.Group_Policy = "";
+		this.Last_Name = "";
+		this.First_Name = "";
+		this.Middle_Name = "";
+		this.Phone_Number = "";
+		this.Email_Address = "";
+		this.Address_1 = "";
+		this.Address_2 = "";
+		this.City = "";
+		this.State = "";
+		this.ZipCode = "";
+		this.DOB = "";
+		this.Gender = "";
+		this.Plan_Coverage_Description = "";
+		this.Eligibility_Begin_Date = "";
+		this.Eligibility_End_Date = "";
+		this.Benefit_Start = "";
+		this.Benefit_End = "";
 	}
 }
 
@@ -215,7 +245,9 @@ const N1CodeDictionary = {
 
 const DTPCodeDictionary = {
 	"382" : "EnrollmentFile",
-	"336" : "EmploymentBegin"
+	"336" : "EmploymentBegin",
+	"348" : "BenefitBegin",
+	"349" : "BenefitEnd"
 }
 
 const EntityIdentfierCodeDictionay = {
@@ -242,183 +274,341 @@ const CommunicationTypeQualifierDict = { //This one is actually complete as far 
 	"WP" : "Work"
 }
 
+const MaritalStatusCodeDict = { //this dictionary should also be complete to spec
+	"A" : "CommonLaw",
+	"B" : "RegisteredDomesticParner",
+	"C" : "NotApplicable",
+	"D" : "Divorced",
+	"I" : "Single",
+	"K" : "Unknown",
+	"M" : "Married",
+	"R" : "Unreported",
+	"S" : "Separated",
+	"U" : "Unmarried", //make no assumption, this can include sigle, divorced, widowed, etc
+	"W" : "Widowed",
+	"X" : "LegallySeparated"
+}
+
+const MaintenanceTypeCodeDict = {
+	"001" : "Change",
+	"002" : "Delete",
+	"021" : "Addition",
+	"024" : "CancellationOrTermination",
+	"025" : "Reinstatement",
+	"026" : "Correction",
+	"030" : "Audit",
+	"032" : "EmployeeInfoNotApplicable"
+}
+
+const InsuranceLineCodeDict = {
+	"AG"  : "PreventativeCareWellness",
+	"AH"  : "24HourCare",
+	"AJ"  : "MedicareRisk",
+	"AK"  : "MentalHealth",
+	"DCP" : "DentalCapitation",
+	"DEN" : "Dental",
+	"EPO" : "ExclusiveProviderOrganization",
+	"FAC" : "Facility",
+	"HE"  : "Hearing",
+	"HLT" : "Health",
+	"HMO" : "HealthMaintenanceOrganization",
+	"LTC" : "Long-TermCare",
+	"LTD" : "Long-TermDisability",
+	"MM"  : "MajorMedical",
+	"MOD" : "MailOrderDrug",
+	"PDG" : "PrescriptionDrug",
+	"POS" : "PointOfService",
+	"PPO" : "PreferredProviderOrganization",
+	"PRA" : "Practitioners",
+	"STD" : "Short-TermDisability",
+	"UR"  : "UtilizationReview",
+	"VIS" : "Vision"
+}
+
 function convertFile(evt){
-	//console.dir(arguments);
 	var inFile = evt.target.files[0];
 
 	var fileReader = new FileReader();
 
 	fileReader.onload =function(evt){
 		let inText = evt.target.result.split(/~\r?\n/);
-		let outText="";
-		let PartnerFederalID = null;
+		let outText='"Partner_Federal_ID","Individual_Relationship_Code","Employment_Status_Code","Student_Status_Code","Subscriber_Employee_Number","Member_Policy_Number","Entity_Organization","Group_Policy","Last_Name","First_Name","Middle_Name","Phone_Number","Email_Address","Address_1","Address_2","City","State","ZipCode","DOB","Gender","Plan_Coverage_Description","Eligibility_Begin_Date","Eligibility_End_Date","Benefit_Start","Benefit_End"\n';
+		let PartnerFederalID = "";
 		let csvRow = new CSVRow();
+		let recordCount = 0;
 
 		inText.forEach(segment => {
-			let type = segment.split("*")[0];
-			switch(type){
-				case "ISA" : //Interchange Control Header
-					console.log('processing ISA header');
-					let thisISA = new ISA(segment);
-					console.dir(thisISA);
-					document.getElementById('status').innerHTML += 'ISA header ignored.<br />';
-				break;
-				case "GS":
-					let thisGS = new GS(segment);
-					console.dir(thisGS);
-					document.getElementById('status').innerHTML += 'GS header ignored.<br />';
-				break;
-				case "ST":
-					console.log('processing ST header');
-					let thisST = new ST(segment);
-					console.dir(thisST);
-					document.getElementById('status').innerHTML += 'Cheking Set Type... ';
-					
-					if(thisST.TransactionSetIDCode != 834){
-						document.getElementById('status').innerHTML += '834 not found. Abandoning process.';
-						throw {}
-					}else{
-						document.getElementById('status').innerHTML += '834 found, continuing<br />';
-						console.log('File type is good');
-					}
-				break;
-				case "BGN":
-					let thisBGN = new BGN(segment);
-					console.dir(thisBGN);
-					document.getElementById('status').innerHTML += 'BGN header ignored.<br />';
-				break;
-				case "DTP":
-					let thisDTP = new DTP(segment);
-					thisDTP.QualifierDesc = DTPCodeDictionary[thisDTP.Qualifier];
-					console.dir(thisDTP);
-					switch(thisDTP.QualifierDesc){
-						case "EnrollmentFile":
-							document.getElementById('status').innerHTML += 'Enrollment file DTP ignored.<br />';
-						break;
-						case "EmploymentBegin":
-							document.getElementById('status').innerHTML += 'Employment Start Date ignored.<br />';
-						break;
-						default:
-							document.getElementById('status').innerHTML += 'Unknown DTP type, Aborting: ' + segment.toString() + '<br />'
-							throw {};
-						break;
-					}
-					if(thisDTP.QualifierDesc == "EnrollmentFile"){
-						document.getElementById('status').innerHTML += 'Enrollment file DTP ignored.<br />';
-					}
-				break;
-				case "N1":
-					let thisN1 = new Entity(segment);
-					thisN1.EntityAction = N1CodeDictionary[thisN1.EntityIDCode].action;
-					thisN1.EntityIDDesc = N1CodeDictionary[thisN1.EntityIDCode].description;
-					console.dir(thisN1);
-					switch(thisN1.EntityAction){
-						case "skip":
-							document.getElementById('status').innerHTML += thisN1.EntityIDDesc + ' codes ignored.<br />';
-						break;
-						case "GetFederalID":
-							if(thisN1.IDCodeQualifier == "FI"){
-								PartnerFederalID = thisN1.IDCode;
-								document.getElementById('status').innerHTML += 'Extracted Federal ID from Plan Sponsor<br />';
-							}else{
-								document.getElementById('status').innerHTML += 'Unhandled partner code type, Aborting: ' + segment.toString() + '<br />';
+			if(segment.length>3){//not sure what a good sane number is here
+				let type = segment.split("*")[0];
+				switch(type){
+					case "ISA" : //Interchange Control Header
+						detailedConsole && console.log('processing ISA header');
+						let thisISA = new ISA(segment);
+						detailedConsole && console.dir(thisISA);
+						document.getElementById('status').innerHTML += 'ISA header ignored.<br />';
+					break;
+					case "GS":
+						let thisGS = new GS(segment);
+						detailedConsole && console.dir(thisGS);
+						document.getElementById('status').innerHTML += 'GS header ignored.<br />';
+					break;
+					case "ST":
+						detailedConsole && console.log('processing ST header');
+						let thisST = new ST(segment);
+						detailedConsole && console.dir(thisST);
+						document.getElementById('status').innerHTML += 'Cheking Set Type... ';
+						
+						if(thisST.TransactionSetIDCode != 834){
+							document.getElementById('status').innerHTML += '834 not found. Abandoning process.';
+							throw {}
+						}else{
+							document.getElementById('status').innerHTML += '834 found, continuing<br />';
+							detailedConsole && console.log('File type is good');
+						}
+					break;
+					case "BGN":
+						let thisBGN = new BGN(segment);
+						detailedConsole && console.dir(thisBGN);
+						document.getElementById('status').innerHTML += 'BGN header ignored.<br />';
+					break;
+					case "DTP":
+						let thisDTP = new DTP(segment);
+						thisDTP.QualifierDesc = DTPCodeDictionary[thisDTP.Qualifier];
+						thisDTP.JSDate = dateFromString(thisDTP.DTPString,thisDTP.Format,"MM/DD/YY");
+						detailedConsole && console.dir(thisDTP);
+						switch(thisDTP.QualifierDesc){
+							case "EnrollmentFile":
+								document.getElementById('status').innerHTML += 'Enrollment file DTP ignored.<br />';
+							break;
+							case "EmploymentBegin":
+								//document.getElementById('status').innerHTML += 'Employment Start Date ignored.<br />';
+							break;
+							case "BenefitBegin":
+								csvRow.Benefit_Start = thisDTP.JSDate;
+							break;
+							default:
+								document.getElementById('status').innerHTML += 'Unknown DTP type, Aborting: ' + segment.toString() + '<br />'
 								throw {};
-							}
-						break;
-						default:
-							document.getElementById('status').innerHTML += 'Unhandled segment type, Aborting: ' + segment.toString() + '<br />';
-							throw {};
-						break;
-					}
-				break;
-				case "INS":
-					let thisINS = new INSSeg(segment);
-					console.dir(thisINS);
-					//this starts and Insured Member Level Detail
-					if(csvRow.Partner_Federal_ID){
-						//write the csv row need to do this at the EOF too
+							break;
+						}
+						if(thisDTP.QualifierDesc == "EnrollmentFile"){
+							document.getElementById('status').innerHTML += 'Enrollment file DTP ignored.<br />';
+						}
+					break;
+					case "N1":
+						let thisN1 = new Entity(segment);
+						thisN1.EntityAction = N1CodeDictionary[thisN1.EntityIDCode].action;
+						thisN1.EntityIDDesc = N1CodeDictionary[thisN1.EntityIDCode].description;
+						detailedConsole && console.dir(thisN1);
+						switch(thisN1.EntityAction){
+							case "skip":
+								document.getElementById('status').innerHTML += thisN1.EntityIDDesc + ' codes ignored.<br />';
+							break;
+							case "GetFederalID":
+								if(thisN1.IDCodeQualifier == "FI"){
+									PartnerFederalID = thisN1.IDCode;
+									document.getElementById('status').innerHTML += 'Extracted Federal ID from Plan Sponsor<br />';
+								}else{
+									document.getElementById('status').innerHTML += 'Unhandled partner code type, Aborting: ' + segment.toString() + '<br />';
+									throw {};
+								}
+							break;
+							default:
+								document.getElementById('status').innerHTML += 'Unhandled segment type, Aborting: ' + segment.toString() + '<br />';
+								throw {};
+							break;
+						}
+					break;
+					case "INS":
+						let thisINS = new INSSeg(segment);
+						detailedConsole && console.dir(thisINS);
+						//this starts and Insured Member Level Detail
+						if(csvRow.Partner_Federal_ID){
+							outText += writeRow(csvRow);
+							recordCount ++;
+							document.getElementById('status').innerHTML += 'Processed Subscriber ' + recordCount + ': ' + csvRow.Subscriber_Employee_Number + '<br />';
+						}
+						csvRow = new CSVRow();
+						detailedConsole && console.dir(PartnerFederalID);
+						csvRow.Partner_Federal_ID = PartnerFederalID;
+						csvRow.Individual_Relationship_Code = thisINS.Individual_Relationship_Code;
+						csvRow.Employment_Status_Code = thisINS.Employment_Status_Code;
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "REF":
+						let thisRef = new REFSeg(segment)
+						thisRef.ReferenceDesc = ReferenceIDQualifierCodeDictionary[thisRef.ReferenceIDQualifier]
+						detailedConsole && console.dir(thisRef);
+						switch(thisRef.ReferenceDesc){
+							case "SubscriberNumber":
+								csvRow.Subscriber_Employee_Number = thisRef.ReferenceValue;
+							break;
+							case "GroupOrPolicyNumber":
+								csvRow.Member_Policy_Number = thisRef.ReferenceValue;
+							break;
+							default:
+								document.getElementById('status').innerHTML += 'Unknown Reference type, Aborting: ' + segment.toString() + '<br />'
+								throw{}
+							break;
+						}
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "NM1":
+						let thisNM1 = new NM1Seg(segment);
+						thisNM1.EntityCodeDesc = EntityIdentfierCodeDictionay[thisNM1.EntityIDCode];
+						detailedConsole && console.dir(thisNM1);
+						switch(thisNM1.EntityCodeDesc){
+							case "InsuredOrSubscriber":
+								csvRow.First_Name = thisNM1.MemberFirstName;
+								csvRow.Last_Name = thisNM1.MemberLastName;
+								csvRow.Middle_Name = thisNM1.MemberMiddleName;
+							break;
+							default:
+								document.getElementById('status').innerHTML += 'Unknown NM1 identifier, Aborting: ' + segment.toString() + '<br />'
+							break;
+						}
+						
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "PER": //Contact type and detail, ie Home phone 555-123-4567 or Email user@company.tld
+						let thisPER = new PERSeg(segment);
+						thisPER.ContactFunctionDesc = ContactFunctionCodeDict[thisPER.ContactFunctionCode];
+						thisPER.CommunicationDescription = CommunicationTypeQualifierDict[thisPER.CommunicationNumberQualifier];
+						thisPER.CommunicationDescription2 = CommunicationTypeQualifierDict[thisPER.CommunicationNumberQualifier2];
+						detailedConsole && console.dir(thisPER);
+						if(["Home","Cellular","Telephone","Work"].indexOf(thisPER.CommunicationDescription) > -1){
+							csvRow.Phone_Number = thisPER.CommunicationNumber;
+						}else if(["Home","Cellular","Telephone","Work"].indexOf(thisPER.CommunicationDescription2) > -1){
+							csvRow.Phone_Number = thisPER.CommunicationNumber2;
+						}
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "N3": //street address
+						let thisN3 = new N3Seg(segment);
+						detailedConsole && console.dir(thisN3);
+						csvRow.Address_1 = thisN3.AddressLine1;
+						csvRow.Address_2 = thisN3.AddressLine2;
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "N4":// City state zip
+						let thisN4 = new N4Seg(segment);
+						detailedConsole && console.dir(thisN4);
+						csvRow.City = thisN4.City;
+						csvRow.State = thisN4.State;
+						csvRow.ZipCode = thisN4.PostalCode;
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "DMG": //Demographic
+						let demographic = new DMGSeg(segment);
+						demographic.MaritalStatusDesc = MaritalStatusCodeDict[demographic.MaritalStatus];
+						detailedConsole && console.dir(demographic);
+						detailedConsole && console.dir(dateFromString(demographic.DOB,demographic.DTPFormat));
+						csvRow.DOB = dateFromString(demographic.DOB,demographic.DTPFormat,"MM/DD/YY");
+						csvRow.Gender = demographic.GenderCode;
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "HD":
+						let planInfo = new HDSeg(segment);
+						planInfo.MaintenanceTypeDesc = MaintenanceTypeCodeDict[planInfo.MaintenanceTypeCode];
+						planInfo.InsuranceLineDesc = InsuranceLineCodeDict[planInfo.InsuranceLineCode];
+						detailedConsole && console.dir(planInfo);
+						if(planInfo.InsuranceLineDesc == "Health"){
+							csvRow.Plan_Coverage_Description = planInfo.PlanCoverageDescription;
+						}
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "SE":
+						document.getElementById('status').innerHTML += 'SE footer ignored.<br />';
+					break;
+					case "GE":
+						//currently ignored
+						document.getElementById('status').innerHTML += 'GE footer ignored.<br />';
+					break;
+					case "IEA":
+					document.getElementById('status').innerHTML += 'IEA footer ignored.<br />';
+					break;
+					default:
+						document.getElementById('status').innerHTML += 'Unknown segment type, Aborting: ' + segment.toString() + '<br />'
 						throw {};
-					}
-					csvRow = new CSVRow();
-					console.dir(PartnerFederalID);
-					csvRow.Partner_Federal_ID = PartnerFederalID;
-					csvRow.Individual_Relationship_Code = thisINS.Individual_Relationship_Code;
-					console.dir(csvRow);
-				break;
-				case "REF":
-					let thisRef = new REFSeg(segment)
-					thisRef.ReferenceDesc = ReferenceIDQualifierCodeDictionary[thisRef.ReferenceIDQualifier]
-					console.dir(thisRef);
-					switch(thisRef.ReferenceDesc){
-						case "SubscriberNumber":
-							csvRow.Subscriber_Employee_Number = thisRef.ReferenceValue;
-						break;
-						case "GroupOrPolicyNumber":
-							csvRow.Member_Policy_Number = thisRef.ReferenceValue;
-						break;
-						default:
-							document.getElementById('status').innerHTML += 'Unknown Reference type, Aborting: ' + segment.toString() + '<br />'
-							throw{}
-						break;
-					}
-					console.dir(csvRow);
-				break;
-				case "NM1":
-					let thisNM1 = new NM1Seg(segment);
-					thisNM1.EntityCodeDesc = EntityIdentfierCodeDictionay[thisNM1.EntityIDCode];
-					console.dir(thisNM1);
-					switch(thisNM1.EntityCodeDesc){
-						case "InsuredOrSubscriber":
-							csvRow.First_Name = thisNM1.MemberFirstName;
-							csvRow.Last_Name = thisNM1.MemberLastName;
-							csvRow.Middle_Name = thisNM1.MemberMiddleName;
-						break;
-						default:
-							document.getElementById('status').innerHTML += 'Unknown NM1 identifier, Aborting: ' + segment.toString() + '<br />'
-						break;
-					}
-					
-					console.dir(csvRow);
-				break;
-				case "PER": //Contact type and detail, ie Home phone 555-123-4567 or Email user@company.tld
-					let thisPER = new PERSeg(segment);
-					thisPER.ContactFunctionDesc = ContactFunctionCodeDict[thisPER.ContactFunctionCode];
-					thisPER.CommunicationDescription = CommunicationTypeQualifierDict[thisPER.CommunicationNumberQualifier];
-					thisPER.CommunicationDescription2 = CommunicationTypeQualifierDict[thisPER.CommunicationNumberQualifier2];
-					console.dir(thisPER);
-					if(["Home","Cellular","Telephone","Work"].indexOf(thisPER.CommunicationDescription) > -1){
-						csvRow.Phone_Number = thisPER.CommunicationNumber;
-					}else if(["Home","Cellular","Telephone","Work"].indexOf(thisPER.CommunicationDescription2) > -1){
-						csvRow.Phone_Number = thisPER.CommunicationNumber2;
-					}
-					console.dir(csvRow);
-				break;
-				case "N3": //street address
-					let thisN3 = new N3Seg(segment);
-					console.dir(thisN3);
-					csvRow.Address_1 = thisN3.AddressLine1;
-					csvRow.Address_2 = thisN3.AddressLine2;
-					console.dir(csvRow);
-				break;
-				case "N4":// City state zip
-					let thisN4 = new N4Seg(segment);
-					console.dir(thisN4);
-					csvRow.City = thisN4.City;
-					csvRow.State = thisN4.State;
-					csvRow.ZipCode = thisN4.PostalCode;
-					console.dir(csvRow);
-				break;
-				default:
-					document.getElementById('status').innerHTML += 'Unknown segment type, Aborting: ' + segment.toString() + '<br />'
-					throw {};
-				break;
+					break;
+				}
 			}
 		});
-		console.dir(inText);
-		console.dir(outText);
+		//get that last row
+		outText += writeRow(csvRow);
+		recordCount ++;
+		document.getElementById('status').innerHTML += 'Processed Subscriber ' + recordCount + ': ' + csvRow.Subscriber_Employee_Number + '<br />';
+		var hiddenElement = document.createElement('a');
+		hiddenElement.href = 'data:text/csv;charset=utf-8,' + encodeURI(outText);
+		hiddenElement.target = '_blank';
+		hiddenElement.download = 'returnFile.csv';
+		hiddenElement.click();
+		//detailedConsole && console.dir(outText);
 	}
 
 	fileReader.readAsText(inFile);
 	document.getElementById('status').innerHTML += 'File read into system.<br />'
-	console.log('done');
+	detailedConsole && console.log('done');
+
+}
+
+function dateFromString(dateString, dateFormatCode,outputformat = "JS"){
+	let dateTime = null;
+	switch(dateFormatCode){
+		case "D8": //CCYYMMDD
+			dateTime = new Date(dateString.substr(0,4),parseInt(dateString.substr(4,2),10)-1,dateString.substr(6,2));
+		break;
+		case "DT": //CCYYMMDDHHMM
+			dateTime = new Date(dateString.substr(0,4),parseInt(dateString.substr(4,2),10)-1,dateString.substr(6,2),dateString.substr(8,2),dateString.substr(10,2));
+		break;
+		case "RD8": //CCYYMMDD-CCYYMMDD  this is a date range
+			//Not sure if I need to worry about this one yet.
+			console.dir('Unhandled date as range');
+			throw {}
+		break;
+		case "TM"://HHMM
+			dateTime = new Date(0,0,1,dateString.substr(0,2),dateString.substr(2,2));
+		break;
+	}
+	switch(outputformat){
+		case "MM/DD/YY":
+			return "" + (parseInt(dateTime.getMonth())+1) + "/" + dateTime.getDate() + "/" + dateTime.getFullYear().toString().substr(2,2); 
+		break;
+		case "JS":
+		default:
+			return dateTime;
+		break;
+	}
+}
+
+function writeRow(rowToWrite){
+	let outText = "";
+	
+	outText += '"' + rowToWrite.Partner_Federal_ID + '"';
+	outText += ',"' + rowToWrite.Individual_Relationship_Code + '"';
+	outText += ',"' + rowToWrite.Employment_Status_Code + '"';
+	outText += ',"' + rowToWrite.Student_Status_Code + '"';
+	outText += ',"' + rowToWrite.Subscriber_Employee_Number + '"';
+	outText += ',"' + rowToWrite.Member_Policy_Number + '"';
+	outText += ',"' + rowToWrite.Entity_Organization + '"';
+	outText += ',"' + rowToWrite.Group_Policy + '"';
+	outText += ',"' + rowToWrite.Last_Name + '"';
+	outText += ',"' + rowToWrite.First_Name + '"';
+	outText += ',"' + rowToWrite.Middle_Name + '"';
+	outText += ',"' + rowToWrite.Phone_Number + '"';
+	outText += ',"' + rowToWrite.Email_Address + '"';
+	outText += ',"' + rowToWrite.Address_1 + '"';
+	outText += ',"' + rowToWrite.Address_2 + '"';
+	outText += ',"' + rowToWrite.City + '"';
+	outText += ',"' + rowToWrite.State + '"';
+	outText += ',"' + rowToWrite.ZipCode + '"';
+	outText += ',"' + rowToWrite.DOB + '"';
+	outText += ',"' + rowToWrite.Gender + '"';
+	outText += ',"' + rowToWrite.Plan_Coverage_Description + '"';
+	outText += ',"' + rowToWrite.Eligibility_Begin_Date + '"';
+	outText += ',"' + rowToWrite.Eligibility_End_Date + '"';
+	outText += ',"' + rowToWrite.Benefit_Start + '"';
+	outText += ',"' + rowToWrite.Benefit_End + '"\n';
+
+	return outText;
 }
