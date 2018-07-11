@@ -18,6 +18,7 @@ let ISA = class{ // Interchange Control Headers
 		//```````````````````````````000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011111
 		//```````````````````````````000000000011111111112222222222333333333344444444445555555555666666666677777777778888888888999999999900000
 		//```````````````````````````012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234
+		/////////////////////////////ISA*00*          *00*          *30*860836639      *ZZ*Navitus        *180628*1032*^*00501*000067173*0*P*~:
 	this.AuthorizationInformationQualifier = segString.substring(4,6);
 	this.AuthorizationInformation = segString.substring(7,17);
 	this.SecurityInformationQualifier = segString.substring(18,20);
@@ -34,6 +35,7 @@ let ISA = class{ // Interchange Control Headers
 	this.AcknowledgmentRequested = segString.substring(100,101);
 	this.InterchangeUsageIndicator = segString.substring(102,103);
 	this.ComponentElementSeparator = segString.substring(104,105);
+	this.SegmentElementSeparator = segString.substring(105,106)
 	}
 }
 
@@ -230,7 +232,12 @@ let CSVRow = class{
 const ReferenceIDQualifierCodeDictionary = {
 	"0F" : "SubscriberNumber",
 	"1L" : "GroupOrPolicyNumber",
+	"23" : "ClientNumber",
+	"38" : "MasterPolicyNumber",
+	"6O" : "CrossReferenceNumber", //That's 6 O as in Oscar, not the number 60
 	"DX" : "DepartmentOrAgencyNumber",
+	"F6" : "HealthInsuranceClaimNumber",
+	"SY" : "SocialSecurityNumber",
 	"ZZ" : "MutuallyDefined"
 }
 
@@ -242,19 +249,33 @@ const N1CodeDictionary = {
 	"IN" : {
 		"description"	: "Insurer",
 		"action"		: "skip"
+	},
+	"TV" :{
+		"description"	: "ThirdPartyAdministrator",
+		"action"		: "skip"
 	}
+	
 }
 
 const DTPCodeDictionary = {
+	"007" : "Effective", //Date, effective date.
+	"303" : "MaintenanceEffective",
 	"382" : "EnrollmentFile",
 	"336" : "EmploymentBegin",
 	"337" : "EmploymentEnd",
+	"338" : "MedicareBegin",
+	"339" : "MedicareEnd",
+	"340" : "COBRABegin",
+	"341" : "COBRAEnd",
 	"348" : "BenefitBegin",
-	"349" : "BenefitEnd"
+	"349" : "BenefitEnd",
+	"356" : "EligibilityBegin",
+	"357" : "EligibilityEnd"
 }
 
-const EntityIdentfierCodeDictionay = {
-	"IL" : "InsuredOrSubscriber"
+const EntityIdentfierCodeDictionay = {//NM1 segment
+	"IL" : "InsuredOrSubscriber",
+	"P3" : "PrimaryCareProvider"
 }
 
 const EntityTypeCodeDictionary = {
@@ -335,249 +356,300 @@ function convertFile(evt){
 	var fileReader = new FileReader();
 
 	fileReader.onload = function(evt){
-		let inText = evt.target.result.split(/~\r?\n?/);
+		let segmentSeparator = evt.target.result.substring(105,106);
+		let segmentRegex = new RegExp(segmentSeparator + '\\r?\\n?');
+		let arr834 = evt.target.result.split(segmentRegex);
 		let csvRow = new CSVRow();
-		
-		let arrTimout = setTimeout(function(arr834){
-			document.getElementById('status').innerHTML += 'There are ' + arr834.length + ' segments.<br />Processing segment <span id="dispSegCount"></span><br>'
-			for(let i=1;i<arr834.length;i++){
-				let breakloop = false;
-				let segTimeout = setTimeout(function(segment){
-					if(segment.length>3){//not sure what a good sane number is here
-						let type = segment.split("*")[0];
-						switch(type){
-							case "ISA" : //Interchange Control Header
-								detailedConsole && console.log('processing ISA header');
-								let thisISA = new ISA(segment);
-								detailedConsole && console.dir(thisISA);
-								document.getElementById('status').innerHTML += 'ISA header ignored.<br />';
+		let i = 0;
+		let j = 1;
+		let k = 0;
+		let partialFileWritten = false;
+		let breakloop = false;
+		document.getElementById('status').innerHTML += 'There are ' + arr834.length + ' segments.<br />Processing segment: <span id="dispSegCount"></span><br>Processed subscriber: <span id="dispSubCount"></span><br />'
+
+		function processSegment(arr834,i){
+			document.getElementById('dispSegCount').innerHTML = (i+1);
+			let segment = arr834[i];
+			if(segment.length>3){//not sure what a good sane number is here
+				let type = segment.split("*")[0];
+				switch(type){
+					case "ISA" : //Interchange Control Header
+						detailedConsole && console.log('processing ISA header');
+						let thisISA = new ISA(segment);
+						detailedConsole && console.dir(thisISA);
+						document.getElementById('status').innerHTML += 'ISA header ignored.<br />';
+					break;
+					case "GS":
+						let thisGS = new GS(segment);
+						detailedConsole && console.dir(thisGS);
+						document.getElementById('status').innerHTML += 'GS header ignored.<br />';
+					break;
+					case "ST":
+						detailedConsole && console.log('processing ST header');
+						let thisST = new ST(segment);
+						detailedConsole && console.dir(thisST);
+						document.getElementById('status').innerHTML += 'Cheking Set Type... ';
+						
+						if(thisST.TransactionSetIDCode != 834){
+							document.getElementById('status').innerHTML += '834 not found. Abandoning process.';
+							breakloop = true;
+						}else{
+							document.getElementById('status').innerHTML += '834 found, continuing<br />';
+							detailedConsole && console.log('File type is good');
+						}
+					break;
+					case "BGN":
+						let thisBGN = new BGN(segment);
+						detailedConsole && console.dir(thisBGN);
+						document.getElementById('status').innerHTML += 'BGN header ignored.<br />';
+					break;
+					case "DTP":
+						let thisDTP = new DTP(segment);
+						thisDTP.QualifierDesc = DTPCodeDictionary[thisDTP.Qualifier];
+						thisDTP.FormattedDate = dateFromString(thisDTP.DTPString,thisDTP.Format,"MM/DD/YY");
+						detailedConsole && console.dir(thisDTP);
+						switch(thisDTP.QualifierDesc){
+							case "EnrollmentFile":
+								document.getElementById('status').innerHTML += 'Enrollment file DTP ignored.<br />';
 							break;
-							case "GS":
-								let thisGS = new GS(segment);
-								detailedConsole && console.dir(thisGS);
-								document.getElementById('status').innerHTML += 'GS header ignored.<br />';
+							case "EmploymentBegin":
+							case "EmploymentEnd":
+							case "Effective":
+							case "MaintenanceEffective":
+							case "COBRABegin":
+							case "COBRAEnd":
+							case "MedicareBegin":
+							case "MedicareEnd":
+								//ignore
 							break;
-							case "ST":
-								detailedConsole && console.log('processing ST header');
-								let thisST = new ST(segment);
-								detailedConsole && console.dir(thisST);
-								document.getElementById('status').innerHTML += 'Cheking Set Type... ';
-								
-								if(thisST.TransactionSetIDCode != 834){
-									document.getElementById('status').innerHTML += '834 not found. Abandoning process.';
-									return
-								}else{
-									document.getElementById('status').innerHTML += '834 found, continuing<br />';
-									detailedConsole && console.log('File type is good');
-								}
+							case "BenefitBegin":
+								csvRow.Benefit_Start = thisDTP.FormattedDate;
 							break;
-							case "BGN":
-								let thisBGN = new BGN(segment);
-								detailedConsole && console.dir(thisBGN);
-								document.getElementById('status').innerHTML += 'BGN header ignored.<br />';
+							case "BenefitEnd":
+								csvRow.Benefit_End = thisDTP.FormattedDate;
 							break;
-							case "DTP":
-								let thisDTP = new DTP(segment);
-								thisDTP.QualifierDesc = DTPCodeDictionary[thisDTP.Qualifier];
-								thisDTP.FormattedDate = dateFromString(thisDTP.DTPString,thisDTP.Format,"MM/DD/YY");
-								detailedConsole && console.dir(thisDTP);
-								switch(thisDTP.QualifierDesc){
-									case "EnrollmentFile":
-										document.getElementById('status').innerHTML += 'Enrollment file DTP ignored.<br />';
-									break;
-									case "EmploymentBegin":
-									case "EmploymentEnd":
-										//ignore
-									break;
-									case "BenefitBegin":
-										csvRow.Benefit_Start = thisDTP.FormattedDate;
-									break;
-									case "BenefitEnd":
-										csvRow.Benefit_End = thisDTP.FormattedDate;
-									break;
-									default:
-										document.getElementById('status').innerHTML += 'Unknown DTP type, Aborting: ' + segment.toString() + '<br />'
-										return;
-									break;
-								}
-								if(thisDTP.QualifierDesc == "EnrollmentFile"){
-									document.getElementById('status').innerHTML += 'Enrollment file DTP ignored.<br />';
-								}
+							case "EligibilityBegin":
+								csvRow.Eligibility_Begin_Date = thisDTP.FormattedDate;
 							break;
-							case "N1":
-								let thisN1 = new Entity(segment);
-								thisN1.EntityAction = N1CodeDictionary[thisN1.EntityIDCode].action;
-								thisN1.EntityIDDesc = N1CodeDictionary[thisN1.EntityIDCode].description;
-								detailedConsole && console.dir(thisN1);
-								switch(thisN1.EntityAction){
-									case "skip":
-										document.getElementById('status').innerHTML += thisN1.EntityIDDesc + ' codes ignored.<br />';
-									break;
-									case "GetFederalID":
-										if(thisN1.IDCodeQualifier == "FI"){
-											PartnerFederalID = thisN1.IDCode;
-											document.getElementById('status').innerHTML += 'Extracted Federal ID from Plan Sponsor<br />';
-										}else{
-											document.getElementById('status').innerHTML += 'Unhandled partner code type, Aborting: ' + segment.toString() + '<br />';
-											return
-										}
-									break;
-									default:
-										document.getElementById('status').innerHTML += 'Unhandled segment type, Aborting: ' + segment.toString() + '<br />';
-										return
-									break;
-								}
-							break;
-							case "INS":
-								let thisINS = new INSSeg(segment);
-								detailedConsole && console.dir(thisINS);
-								//this starts and Insured Member Level Detail
-								if(csvRow.Partner_Federal_ID){
-									outText += writeRow(csvRow);
-								}
-								csvRow = new CSVRow();
-								detailedConsole && console.dir(PartnerFederalID);
-								csvRow.Partner_Federal_ID = PartnerFederalID;
-								csvRow.Individual_Relationship_Code = thisINS.Individual_Relationship_Code;
-								csvRow.Employment_Status_Code = thisINS.Employment_Status_Code;
-								detailedConsole && console.dir(csvRow);
-							break;
-							case "REF":
-								let thisRef = new REFSeg(segment)
-								thisRef.ReferenceDesc = ReferenceIDQualifierCodeDictionary[thisRef.ReferenceIDQualifier]
-								detailedConsole && console.dir(thisRef);
-								switch(thisRef.ReferenceDesc){
-									case "SubscriberNumber":
-										csvRow.Subscriber_Employee_Number = thisRef.ReferenceValue;
-									break;
-									case "GroupOrPolicyNumber":
-										csvRow.Member_Policy_Number = thisRef.ReferenceValue;
-									break;
-									case "DepartmentOrAgencyNumber":
-									case "MutuallyDefined":
-										//ignore
-									break;
-									default:
-										document.getElementById('status').innerHTML += 'Unknown Reference type, Aborting: ' + segment.toString() + '<br />'
-										return
-									break;
-								}
-								detailedConsole && console.dir(csvRow);
-							break;
-							case "NM1":
-								let thisNM1 = new NM1Seg(segment);
-								thisNM1.EntityCodeDesc = EntityIdentfierCodeDictionay[thisNM1.EntityIDCode];
-								detailedConsole && console.dir(thisNM1);
-								switch(thisNM1.EntityCodeDesc){
-									case "InsuredOrSubscriber":
-										csvRow.First_Name = thisNM1.MemberFirstName;
-										csvRow.Last_Name = thisNM1.MemberLastName;
-										csvRow.Middle_Name = thisNM1.MemberMiddleName;
-									break;
-									default:
-										document.getElementById('status').innerHTML += 'Unknown NM1 identifier, Aborting: ' + segment.toString() + '<br />'
-										clearTimeout(segTimeout);
-										breakloop = true;
-										return
-									break;
-								}
-								
-								detailedConsole && console.dir(csvRow);
-							break;
-							case "PER": //Contact type and detail, ie Home phone 555-123-4567 or Email user@company.tld
-								let thisPER = new PERSeg(segment);
-								thisPER.ContactFunctionDesc = ContactFunctionCodeDict[thisPER.ContactFunctionCode];
-								thisPER.CommunicationDescription = CommunicationTypeQualifierDict[thisPER.CommunicationNumberQualifier];
-								thisPER.CommunicationDescription2 = CommunicationTypeQualifierDict[thisPER.CommunicationNumberQualifier2];
-								detailedConsole && console.dir(thisPER);
-								if(["Home","Cellular","Telephone","Work"].indexOf(thisPER.CommunicationDescription) > -1){
-									csvRow.Phone_Number = thisPER.CommunicationNumber;
-								}else if(["Home","Cellular","Telephone","Work"].indexOf(thisPER.CommunicationDescription2) > -1){
-									csvRow.Phone_Number = thisPER.CommunicationNumber2;
-								}
-								detailedConsole && console.dir(csvRow);
-							break;
-							case "N3": //street address
-								let thisN3 = new N3Seg(segment);
-								detailedConsole && console.dir(thisN3);
-								csvRow.Address_1 = thisN3.AddressLine1;
-								csvRow.Address_2 = thisN3.AddressLine2;
-								detailedConsole && console.dir(csvRow);
-							break;
-							case "N4":// City state zip
-								let thisN4 = new N4Seg(segment);
-								detailedConsole && console.dir(thisN4);
-								csvRow.City = thisN4.City;
-								csvRow.State = thisN4.State;
-								csvRow.ZipCode = thisN4.PostalCode;
-								detailedConsole && console.dir(csvRow);
-							break;
-							case "DMG": //Demographic
-								let demographic = new DMGSeg(segment);
-								demographic.MaritalStatusDesc = MaritalStatusCodeDict[demographic.MaritalStatus];
-								detailedConsole && console.dir(demographic);
-								detailedConsole && console.dir(dateFromString(demographic.DOB,demographic.DTPFormat));
-								csvRow.DOB = dateFromString(demographic.DOB,demographic.DTPFormat,"MM/DD/YY");
-								csvRow.Gender = demographic.GenderCode;
-								detailedConsole && console.dir(csvRow);
-							break;
-							case "HD":
-								let planInfo = new HDSeg(segment);
-								planInfo.MaintenanceTypeDesc = MaintenanceTypeCodeDict[planInfo.MaintenanceTypeCode];
-								planInfo.InsuranceLineDesc = InsuranceLineCodeDict[planInfo.InsuranceLineCode];
-								detailedConsole && console.dir(planInfo);
-								if(planInfo.InsuranceLineDesc == "Health"){
-									csvRow.Plan_Coverage_Description = planInfo.PlanCoverageDescription;
-								}
-								detailedConsole && console.dir(csvRow);
-							break;
-							case "SE":
-								document.getElementById('status').innerHTML += 'SE footer ignored.<br />';
-							break;
-							case "GE":
-								//currently ignored
-								document.getElementById('status').innerHTML += 'GE footer ignored.<br />';
-							break;
-							case "IEA":
-								document.getElementById('status').innerHTML += 'IEA footer ignored.<br />';
-							break;
-							case "ICM":
-								//document.getElementById('status').innerHTML += 'ICM segment ignored. <br />';
-							break;
-							case "LX"://line counter.... not yet sure what this is for
-								//document.getElementById('status').innerHTML += 'LX segment ignored. <br />';
+							case "EligibilityEnd":
+								csvRow.Eligibility_End_Date = thisDTP.FormattedDate;
 							break;
 							default:
-								document.getElementById('status').innerHTML += 'Unknown segment type, Aborting: ' + segment.toString() + '<br />'
-								return
+								document.getElementById('status').innerHTML += 'Unknown DTP type, Aborting: ' + segment.toString() + '<br />'
+								breakloop = true;
 							break;
 						}
-					}
-					document.getElementById('dispSegCount').innerHTML = i;
-				},0,arr834[i]);
-				if(breakloop){break;}
+						if(thisDTP.QualifierDesc == "EnrollmentFile"){
+							document.getElementById('status').innerHTML += 'Enrollment file DTP ignored.<br />';
+						}
+					break;
+					case "N1":
+						let thisN1 = new Entity(segment);
+						if(typeof N1CodeDictionary[thisN1.EntityIDCode] == 'undefined'){
+							document.getElementById('status').innerHTML += 'N1 Code not in dictionary, Aborting: ' + segment.toString() + '<br />';
+							breakloop = true;
+							break;
+						}
+						thisN1.EntityAction = N1CodeDictionary[thisN1.EntityIDCode].action;
+						thisN1.EntityIDDesc = N1CodeDictionary[thisN1.EntityIDCode].description;
+						detailedConsole && console.dir(thisN1);
+						switch(thisN1.EntityAction){
+							case "skip":
+								document.getElementById('status').innerHTML += thisN1.EntityIDDesc + ' codes ignored.<br />';
+							break;
+							case "GetFederalID":
+								if(thisN1.IDCodeQualifier == "FI"){
+									PartnerFederalID = thisN1.IDCode;
+									document.getElementById('status').innerHTML += 'Extracted Federal ID from Plan Sponsor<br />';
+								}else{
+									document.getElementById('status').innerHTML += 'Unhandled partner code type, Aborting: ' + segment.toString() + '<br />';
+									breakloop = true;
+								}
+							break;
+							default:
+								document.getElementById('status').innerHTML += 'Unhandled segment type, Aborting: ' + segment.toString() + '<br />';
+								breakloop = true;
+							break;
+						}
+					break;
+					case "INS":
+						let thisINS = new INSSeg(segment);
+						detailedConsole && console.dir(thisINS);
+						//this starts and Insured Member Level Detail
+						if(csvRow.Partner_Federal_ID){
+							outText += writeRow(csvRow);
+							partialFileWritten = false;
+							document.getElementById('dispSubCount').innerHTML = k+1;
+							k++;
+						}
+						csvRow = new CSVRow();
+						detailedConsole && console.dir(PartnerFederalID);
+						csvRow.Partner_Federal_ID = PartnerFederalID;
+						csvRow.Individual_Relationship_Code = thisINS.Individual_Relationship_Code;
+						csvRow.Employment_Status_Code = thisINS.Employment_Status_Code;
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "REF":
+						let thisRef = new REFSeg(segment)
+						thisRef.ReferenceDesc = ReferenceIDQualifierCodeDictionary[thisRef.ReferenceIDQualifier]
+						detailedConsole && console.dir(thisRef);
+						switch(thisRef.ReferenceDesc){
+							case "SubscriberNumber":
+								csvRow.Subscriber_Employee_Number = thisRef.ReferenceValue;
+							break;
+							case "GroupOrPolicyNumber":
+								csvRow.Member_Policy_Number = thisRef.ReferenceValue;
+							break;
+							case "DepartmentOrAgencyNumber":
+							case "MutuallyDefined":
+							case "MasterPolicyNumber": 
+							case "CrossReferenceNumber":
+							case "HealthInsuranceClaimNumber":
+							case "ClientNumber":
+							case "SocialSecurityNumber":
+								//silent ignore
+							break;
+							default:
+								document.getElementById('status').innerHTML += 'Unknown Reference type, Aborting: ' + segment.toString() + '<br />'
+								breakloop = true;
+							break;
+						}
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "NM1":
+						let thisNM1 = new NM1Seg(segment);
+						thisNM1.EntityCodeDesc = EntityIdentfierCodeDictionay[thisNM1.EntityIDCode];
+						detailedConsole && console.dir(thisNM1);
+						switch(thisNM1.EntityCodeDesc){
+							case "InsuredOrSubscriber":
+								csvRow.First_Name = thisNM1.MemberFirstName;
+								csvRow.Last_Name = thisNM1.MemberLastName;
+								csvRow.Middle_Name = thisNM1.MemberMiddleName;
+							break;
+							case "PrimaryCareProvider":
+								//silent ignore
+							break;
+							default:
+								document.getElementById('status').innerHTML += 'Unknown NM1 identifier, Aborting: ' + segment.toString() + '<br />'
+								breakloop = true;
+							break;
+						}
+						
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "PER": //Contact type and detail, ie Home phone 555-123-4567 or Email user@company.tld
+						let thisPER = new PERSeg(segment);
+						thisPER.ContactFunctionDesc = ContactFunctionCodeDict[thisPER.ContactFunctionCode];
+						thisPER.CommunicationDescription = CommunicationTypeQualifierDict[thisPER.CommunicationNumberQualifier];
+						thisPER.CommunicationDescription2 = CommunicationTypeQualifierDict[thisPER.CommunicationNumberQualifier2];
+						detailedConsole && console.dir(thisPER);
+						if(["Home","Cellular","Telephone","Work"].indexOf(thisPER.CommunicationDescription) > -1){
+							csvRow.Phone_Number = thisPER.CommunicationNumber;
+						}else if(["Home","Cellular","Telephone","Work"].indexOf(thisPER.CommunicationDescription2) > -1){
+							csvRow.Phone_Number = thisPER.CommunicationNumber2;
+						}
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "N3": //street address
+						let thisN3 = new N3Seg(segment);
+						detailedConsole && console.dir(thisN3);
+						csvRow.Address_1 = thisN3.AddressLine1;
+						csvRow.Address_2 = thisN3.AddressLine2;
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "N4":// City state zip
+						let thisN4 = new N4Seg(segment);
+						detailedConsole && console.dir(thisN4);
+						csvRow.City = thisN4.City;
+						csvRow.State = thisN4.State;
+						csvRow.ZipCode = thisN4.PostalCode;
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "DMG": //Demographic
+						let demographic = new DMGSeg(segment);
+						demographic.MaritalStatusDesc = MaritalStatusCodeDict[demographic.MaritalStatus];
+						detailedConsole && console.dir(demographic);
+						detailedConsole && console.dir(dateFromString(demographic.DOB,demographic.DTPFormat));
+						csvRow.DOB = dateFromString(demographic.DOB,demographic.DTPFormat,"MM/DD/YY");
+						csvRow.Gender = demographic.GenderCode;
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "HD":
+						let planInfo = new HDSeg(segment);
+						planInfo.MaintenanceTypeDesc = MaintenanceTypeCodeDict[planInfo.MaintenanceTypeCode];
+						planInfo.InsuranceLineDesc = InsuranceLineCodeDict[planInfo.InsuranceLineCode];
+						detailedConsole && console.dir(planInfo);
+						if(planInfo.InsuranceLineDesc == "Health"){
+							csvRow.Plan_Coverage_Description = planInfo.PlanCoverageDescription;
+						}
+						detailedConsole && console.dir(csvRow);
+					break;
+					case "SE":
+						document.getElementById('status').innerHTML += 'SE footer ignored.<br />';
+					break;
+					case "GE":
+						//currently ignored
+						document.getElementById('status').innerHTML += 'GE footer ignored.<br />';
+					break;
+					case "IEA":
+						document.getElementById('status').innerHTML += 'IEA footer ignored.<br />';
+					break;
+					case "ICM":
+					case "LX"://line counter.... not yet sure what this is for
+					case "QTY": //quantity, could be usefull but doesn't seem like it provided reliably
+					case "COB"://coordination of benefits
+						//silent ignore
+					break;
+					default:
+						document.getElementById('status').innerHTML += 'Unknown segment type, Aborting: ' + segment.toString() + '<br />'
+						breakloop = true;
+					break;
+				}
 			}
-			//clearInterval(arrTimout);
-		},0,inText);
-		return false;
-		let recordCount = 0;
 
-		inText.forEach(segment => {
-			function segStep(segment){
-				
+			//there seems to be a max size of things, so let's break up large files: currently breaks up on segments processed, maybe it should on rows written?
+			if(k % 5000 == 0 && i>0 && k>0){
+				//write what we have so far to a file:
+				if(!partialFileWritten){
+					var hiddenElement = document.createElement('a');
+					hiddenElement.href = 'data:text/csv;charset=utf-8,' + encodeURI(outText);
+					hiddenElement.innerHTML = "Part " + j + ": Click here if download did not start automatically"
+					hiddenElement.target = '_self';
+					hiddenElement.download = document.getElementById('fileInput').files[0].name + 'part' + j + '.csv';
+					hiddenElement.click();
+					document.getElementById('status').appendChild(hiddenElement);
+					document.getElementById('status').innerHTML += '<br />'
+					outText='"Partner_Federal_ID","Individual_Relationship_Code","Employment_Status_Code","Student_Status_Code","Subscriber_Employee_Number","Member_Policy_Number","Entity_Organization","Group_Policy","Last_Name","First_Name","Middle_Name","Phone_Number","Email_Address","Address_1","Address_2","City","State","ZipCode","DOB","Gender","Plan_Coverage_Description","Eligibility_Begin_Date","Eligibility_End_Date","Benefit_Start","Benefit_End"\n';
+					j++;
+					partialFileWritten = true;
+				}
 			}
-			setTimeout(segStep,0,segment);
-			
-		});
-		//get that last row
-		outText += writeRow(csvRow);
-		recordCount ++;
-		document.getElementById('status').innerHTML += 'Processed Subscriber ' + recordCount + ': ' + csvRow.Subscriber_Employee_Number + '<br />';
-		// var hiddenElement = document.createElement('a');
-		// hiddenElement.href = 'data:text/csv;charset=utf-8,' + encodeURI(outText);
-		// hiddenElement.target = '_blank';
-		// hiddenElement.download = document.getElementById('fileInput').files[0].name + '.csv';
-		// hiddenElement.click();
+
+			i++;
+			if(!breakloop && i<arr834.length){
+				setTimeout(processSegment,0,arr834,i);
+			}else if(!breakloop){
+				//processed successfully
+				outText += writeRow(csvRow);
+				var hiddenElement = document.createElement('a');
+				hiddenElement.href = 'data:text/csv;charset=utf-8,' + encodeURI(outText);
+				
+				hiddenElement.target = '_self';
+				if(j > 1){
+					hiddenElement.innerHTML = "Part " + j + ": Click here if download did not start automatically"
+					hiddenElement.download = document.getElementById('fileInput').files[0].name + 'part' + j + '.csv';
+				}else{
+					hiddenElement.innerHTML = "Click here if download did not start automatically"
+					hiddenElement.download = document.getElementById('fileInput').files[0].name + '.csv';
+				}
+				hiddenElement.click();
+				document.getElementById('status').appendChild(hiddenElement);
+				document.getElementById('status').innerHTML += '<br />'
+			}
+		}
+		if(i<arr834.length){
+			setTimeout(processSegment,0,arr834,i);
+		}
 	}
 	fileReader.readAsText(inFile);
 	document.getElementById('status').innerHTML += 'File read into system.<br />'
@@ -585,30 +657,34 @@ function convertFile(evt){
 
 function dateFromString(dateString, dateFormatCode,outputformat = "JS"){
 	let dateTime = null;
-	switch(dateFormatCode){
-		case "D8": //CCYYMMDD
-			dateTime = new Date(dateString.substr(0,4),parseInt(dateString.substr(4,2),10)-1,dateString.substr(6,2));
-		break;
-		case "DT": //CCYYMMDDHHMM
-			dateTime = new Date(dateString.substr(0,4),parseInt(dateString.substr(4,2),10)-1,dateString.substr(6,2),dateString.substr(8,2),dateString.substr(10,2));
-		break;
-		case "RD8": //CCYYMMDD-CCYYMMDD  this is a date range
-			//Not sure if I need to worry about this one yet.
-			console.dir('Unhandled date as range');
-			throw {}
-		break;
-		case "TM"://HHMM
-			dateTime = new Date(0,0,1,dateString.substr(0,2),dateString.substr(2,2));
-		break;
-	}
-	switch(outputformat){
-		case "MM/DD/YY":
-			return "" + (parseInt(dateTime.getMonth())+1) + "/" + dateTime.getDate() + "/" + dateTime.getFullYear().toString().substr(2,2); 
-		break;
-		case "JS":
-		default:
-			return dateTime;
-		break;
+	if(typeof dateString == 'undefined' || dateString.length == 0){
+		return "";
+	}else{
+		switch(dateFormatCode){
+			case "D8": //CCYYMMDD
+				dateTime = new Date(dateString.substr(0,4),parseInt(dateString.substr(4,2),10)-1,dateString.substr(6,2));
+			break;
+			case "DT": //CCYYMMDDHHMM
+				dateTime = new Date(dateString.substr(0,4),parseInt(dateString.substr(4,2),10)-1,dateString.substr(6,2),dateString.substr(8,2),dateString.substr(10,2));
+			break;
+			case "RD8": //CCYYMMDD-CCYYMMDD  this is a date range
+				//Not sure if I need to worry about this one yet.
+				console.dir('Unhandled date as range');
+				throw {}
+			break;
+			case "TM"://HHMM
+				dateTime = new Date(0,0,1,dateString.substr(0,2),dateString.substr(2,2));
+			break;
+		}
+		switch(outputformat){
+			case "MM/DD/YY":
+				return "" + (parseInt(dateTime.getMonth())+1) + "/" + dateTime.getDate() + "/" + dateTime.getFullYear().toString().substr(2,2); 
+			break;
+			case "JS":
+			default:
+				return dateTime;
+			break;
+		}
 	}
 }
 
