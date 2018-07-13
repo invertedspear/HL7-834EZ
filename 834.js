@@ -109,7 +109,7 @@ let INSSeg = class{
 		this.BenefitStatusCode = segArray[5];
 		this.MedicareStatusCode = segArray[6];
 		this.COBRA = segArray[7];
-		this.Employment_Status_Code = segArray[8];
+		this.Employment_Status_Code = segArray.length > 7?segArray[8]:"";
 		this.Student_Status_Code = segArray[9];//Not Used, only defined by spec
 		this.HandicapIndicator = segArray[10];//Not Used, only defined by spec
 		this.DateTimePeriodQualifier = segArray[11];//Not Used, only defined by spec
@@ -134,7 +134,7 @@ let NM1Seg = class{ //information source name
 		this.EntityTypeQualifier = segArray[2];
 		this.MemberLastName = segArray[3];
 		this.MemberFirstName = segArray[4];
-		this.MemberMiddleName = segArray[5];
+		this.MemberMiddleName = segArray.length > 4?segArray[5]:"";
 		this.NamePrefix = segArray[6];
 		this.NameSuffix = segArray[7];
 		this.IDCodeQualifier = segArray[8];
@@ -487,6 +487,7 @@ function convertFile(evt){
 						csvRow.Partner_Federal_ID = PartnerFederalID;
 						csvRow.Individual_Relationship_Code = thisINS.Individual_Relationship_Code;
 						csvRow.Employment_Status_Code = thisINS.Employment_Status_Code;
+						csvRow.Student_Status_Code = thisINS.Student_Status_Code;
 						detailedConsole && console.dir(csvRow);
 					break;
 					case "REF":
@@ -500,13 +501,21 @@ function convertFile(evt){
 							case "GroupOrPolicyNumber":
 								csvRow.Member_Policy_Number = thisRef.ReferenceValue;
 							break;
+							case "SocialSecurityNumber":
+								if(csvRow.Subscriber_Employee_Number.length < 2){
+									csvRow.Subscriber_Employee_Number = thisRef.ReferenceValue;
+								}
+							break;
 							case "DepartmentOrAgencyNumber":
+								csvRow.Entity_Organization = thisRef.ReferenceValue;
+							break;
 							case "MutuallyDefined":
+								csvRow.Group_Policy = thisRef.ReferenceValue;
+							break;
 							case "MasterPolicyNumber": 
 							case "CrossReferenceNumber":
 							case "HealthInsuranceClaimNumber":
 							case "ClientNumber":
-							case "SocialSecurityNumber":
 								//silent ignore
 							break;
 							default:
@@ -547,6 +556,12 @@ function convertFile(evt){
 							csvRow.Phone_Number = thisPER.CommunicationNumber;
 						}else if(["Home","Cellular","Telephone","Work"].indexOf(thisPER.CommunicationDescription2) > -1){
 							csvRow.Phone_Number = thisPER.CommunicationNumber2;
+						}
+						if(thisPER.CommunicationDescription == "EMail"){
+							csvRow.Email_Address = thisPER.CommunicationNumber
+						}
+						if(thisPER.CommunicationDescription2 == "EMail"){
+							csvRow.Email_Address = thisPER.CommunicationNumber2
 						}
 						detailedConsole && console.dir(csvRow);
 					break;
